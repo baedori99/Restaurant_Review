@@ -7,6 +7,7 @@ from langchain_openai import ChatOpenAI
 load_dotenv()
 
 from langchain_openai import ChatOpenAI
+from langchain_core.callbacks import BaseCallbackHandler
 
 template = """\
 당신은 상대방의 MBTI를 듣고 그 MBTI에 관한 정보를 알려주는 로봇입니다.
@@ -15,6 +16,15 @@ MBTI에 관한 질문에만 답변해주세요.
 """
 
 session_key = "chat_history"
+
+class CustomHandler(BaseCallbackHandler):
+    def __init__(self, container):
+        self.container = container
+        self.text = ""
+    def on_llm_new_token(self, token: str, **kwargs) -> None:
+        self.text += token # 토큰 하나씩 추가
+        self.container.markdown(self.text) # 하나씩 추가된 토큰 출력
+
 
 st.header("MBTI에 대해 알려주는 챗봇")
 
@@ -25,13 +35,13 @@ if session_key not in st.session_state:
 # 저장된 체인 불러오기
 if "chain" in st.session_state:
     chain = st.session_state["chain"]
-    
+
 # 처음에 체인 만들기
 else:
     prompt = ChatPromptTemplate.from_messages(
         [("system", template), ("human", "{input}")]
     )
-    model = ChatOpenAI(model_name="gpt-3.5-turbo")
+    model = ChatOpenAI(model_name="gpt-3.5-turbo", streaming = True)
     chain = prompt | model | StrOutputParser()
 
 # 첫 채팅을 시작할 때 첫 인사 출력
@@ -57,12 +67,16 @@ if question:
     st.session_state[session_key].append(
         {"role": "user", "content": question}
     )
-    answer = chain.invoke({"input": question})
-    st.chat_message("assistant").markdown(answer)
+
     # 답변 출력
-    # with st.chat_message("assistant"):
-    #     answer = chain.invoke({"input": question})
-    #     print(answer)
+    with st.chat_message("assistant"):
+        container = st.empty()
+        handler = CustomHandler(container)
+        answer = chain.invoke(
+            {"input": question},
+            {"callbacks": [handler]}
+            )
+
     st.session_state[session_key].append(
         {"role": "assistant", "content": answer}
     )
